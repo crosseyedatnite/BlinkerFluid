@@ -1,81 +1,72 @@
-#include <Arduino.h>
+#include "LowPower.h"
 
-// put function declarations here:
-int myFunction(int, int);
-void goAlarm();
-void justBlink();
-void clickySignal();
-void turnSignal();
 const int ldrPin = A0;
 const int piezoPin = 8;
-const int ledPin = 13;
-int lightThreshold = 200; // Adjust this based on your bottle's frostiness
+const int buttonPin = 3; 
+const int blinkerLed = 4;
 
+volatile bool systemActive = true; // Set to true for calibration
+
+// --- CALIBRATION VALUES (Update these after testing) ---
+int floorThreshold = 50;   
+int alarmThreshold = 300;  
+
+void toggleSystem() {
+  systemActive = !systemActive;
+}
 
 void setup() {
-  // initialize LED digital pin as an output.
-  pinMode(LED_BUILTIN, OUTPUT);
-  Serial.begin(9600); // Use this to calibrate your threshold
+  Serial.begin(9600); // Start Serial communication
+  pinMode(piezoPin, OUTPUT);
+  pinMode(blinkerLed, OUTPUT);
+  pinMode(buttonPin, INPUT_PULLUP);
+  attachInterrupt(digitalPinToInterrupt(buttonPin), toggleSystem, FALLING);
+  
+  Serial.println("--- Blinker Fluid Calibration Mode ---");
 }
 
 void loop() {
-int lightLevel = analogRead(ldrPin);
-  return;;
-  // Uncomment the line below to see your light values in the Serial Monitor
-   Serial.println(lightLevel);
+  int lightLevel = analogRead(ldrPin);
+  
+  // PRINT CURRENT LEVEL
+  Serial.print("Light Level: ");
+  Serial.println(lightLevel);
 
-  if (lightLevel > lightThreshold) {
-    // CAP REMOVED: Alarm Mode!
-    goAlarm();
+  if (!systemActive) {
+    Serial.println("System Sleep (Simulated)");
+    delay(1000); 
+    return;
+  }
+
+  if (lightLevel > alarmThreshold) {
+    // --- STATE 3: ALARM ---
+    digitalWrite(blinkerLed, HIGH);
+    tone(piezoPin, 2000, 50);
+    delay(50);
+    digitalWrite(blinkerLed, LOW);
+    tone(piezoPin, 1000, 50);
+    delay(50);
+
+  } else if (lightLevel > floorThreshold) {
+    // --- STATE 2: TURN SIGNAL ---
+    digitalWrite(blinkerLed, HIGH);
+    tone(piezoPin, 1500, 15); 
+    delay(400);
+    digitalWrite(blinkerLed, LOW);
+    tone(piezoPin, 1200, 15);
+    
+    delay(500); // Using delay instead of LowPower for calibration
+    // Quick nap between ticks
+    //LowPower.powerDown(SLEEP_500MS, ADC_OFF, BOD_OFF);
+
   } else {
-    // CAP ON: Turn Signal Mode
-    turnSignal();
+    // --- STATE 1: STEALTH ---
+    digitalWrite(blinkerLed, LOW);
+    noTone(piezoPin);
+
+    delay(1000); // Using delay instead of LowPower for calibration
+
+    // Long nap because it's dark and nobody is looking
+    LowPower.powerDown(SLEEP_4S, ADC_OFF, BOD_OFF);
   }
 }
-
-void turnSignal()
-{
-  digitalWrite(LED_BUILTIN, HIGH); // Light on
-  tone(piezoPin, 1500, 15);   // Tick!
-  delay(400);
-  
-  digitalWrite(LED_BUILTIN, LOW);  // Light off
-  tone(piezoPin, 1200, 15);   // Tock!
-  delay(400);
-}
-
-void clickySignal()
-{
-  // The "Tick"
-  tone(piezoPin, 1500); // High pitch for sharpness
-  delay(15);            // Very short duration
-  noTone(piezoPin);     // Stop the sound
-  
-  delay(400);           // Gap between tick and tock
-  
-  // The "Tock" (slightly lower pitch for realism)
-  tone(piezoPin, 1200); 
-  delay(15);
-  noTone(piezoPin);
-  
-  delay(400);           // Gap before the next cycle
-}
-
-void goAlarm()
-{
-  // Rapid Warble (0.5 seconds)
-  for(int i=0; i<5; i++) {
-    tone(8, 600, 100);
-  digitalWrite(LED_BUILTIN, HIGH);
-    delay(100);
-  digitalWrite(LED_BUILTIN, LOW);
-    delay(100);
-  }
-  
-  // Fast Rise (0.5 seconds)
-  for(int i=500; i<2000; i+=20) {
-    tone(8, i, 10);
-    delay(10);
-  }
-}
-
