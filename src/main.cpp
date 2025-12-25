@@ -1,72 +1,115 @@
 #include "LowPower.h"
 
+// Pin Definitions
 const int ldrPin = A0;
 const int piezoPin = 8;
 const int buttonPin = 3; 
-const int blinkerLed = 4;
+const int yellowLED = 4; // Turn Signal
+const int redLED    = 5; // Alarm Strobe / Disarmed indicator
+const int blueLED   = 6; // Alarm Strobe
+const int whiteLED  = 7; // Alarm Strobe / Armed indicator
 
-volatile bool systemActive = true; // Set to true for calibration
+volatile bool systemActive = true; 
+void toggleSystem();
+void runPoliceStrobe();
+void allLedsOff();
 
-// --- CALIBRATION VALUES (Update these after testing) ---
+// --- CALIBRATION ---
 int floorThreshold = 50;   
-int alarmThreshold = 300;  
+int alarmThreshold = 500;  
+
+void setup() {
+  Serial.begin(9600);
+
+  Serial.println("System initialized.");
+  pinMode(piezoPin, OUTPUT);
+  pinMode(yellowLED, OUTPUT);
+  pinMode(redLED, OUTPUT);
+  pinMode(blueLED, OUTPUT);
+  pinMode(whiteLED, OUTPUT);
+  pinMode(buttonPin, INPUT_PULLUP);
+  
+  // Attach interrupt to wake up or arm/disarm
+  attachInterrupt(digitalPinToInterrupt(buttonPin), toggleSystem, FALLING);
+}
 
 void toggleSystem() {
   systemActive = !systemActive;
-}
-
-void setup() {
-  Serial.begin(9600); // Start Serial communication
-  pinMode(piezoPin, OUTPUT);
-  pinMode(blinkerLed, OUTPUT);
-  pinMode(buttonPin, INPUT_PULLUP);
-  attachInterrupt(digitalPinToInterrupt(buttonPin), toggleSystem, FALLING);
   
-  Serial.println("--- Blinker Fluid Calibration Mode ---");
+  if (systemActive) {
+    // Armed Chirp-Chirp
+    for(int i=0; i<2; i++) {
+      tone(piezoPin, 3000, 50);
+      digitalWrite(whiteLED, HIGH);
+      delay(70);
+      noTone(piezoPin);
+      digitalWrite(whiteLED, LOW);
+      delay(50);
+    }
+  } else {
+    // Disarmed Long Chirp
+    tone(piezoPin, 1000, 200);
+    digitalWrite(redLED, HIGH);
+    delay(200);
+    noTone(piezoPin);
+    digitalWrite(redLED, LOW);
+  }
 }
 
 void loop() {
-  int lightLevel = analogRead(ldrPin);
-  
-  // PRINT CURRENT LEVEL
-  Serial.print("Light Level: ");
-  Serial.println(lightLevel);
-
+  // If system is deactivated, sleep forever to save battery
   if (!systemActive) {
-    Serial.println("System Sleep (Simulated)");
-    delay(1000); 
+    LowPower.powerDown(SLEEP_FOREVER, ADC_OFF, BOD_OFF);
     return;
   }
 
+  int lightLevel = analogRead(ldrPin);
+  
+  // Calibration output
+  Serial.print("Light Level: "); Serial.println(lightLevel);
+
   if (lightLevel > alarmThreshold) {
     // --- STATE 3: ALARM ---
-    digitalWrite(blinkerLed, HIGH);
-    tone(piezoPin, 2000, 50);
-    delay(50);
-    digitalWrite(blinkerLed, LOW);
-    tone(piezoPin, 1000, 50);
-    delay(50);
-
+    runPoliceStrobe();
   } else if (lightLevel > floorThreshold) {
     // --- STATE 2: TURN SIGNAL ---
-    digitalWrite(blinkerLed, HIGH);
+    digitalWrite(yellowLED, HIGH);
     tone(piezoPin, 1500, 15); 
     delay(400);
-    digitalWrite(blinkerLed, LOW);
+    digitalWrite(yellowLED, LOW);
     tone(piezoPin, 1200, 15);
-    
-    delay(500); // Using delay instead of LowPower for calibration
-    // Quick nap between ticks
-    //LowPower.powerDown(SLEEP_500MS, ADC_OFF, BOD_OFF);
-
+    LowPower.powerDown(SLEEP_500MS, ADC_OFF, BOD_OFF);
   } else {
     // --- STATE 1: STEALTH ---
-    digitalWrite(blinkerLed, LOW);
-    noTone(piezoPin);
-
-    delay(1000); // Using delay instead of LowPower for calibration
-
-    // Long nap because it's dark and nobody is looking
-    LowPower.powerDown(SLEEP_4S, ADC_OFF, BOD_OFF);
+    allLedsOff();
+    delay(200);
+    LowPower.powerDown(SLEEP_4S, ADC_OFF, BOD_OFF); 
   }
+}
+
+void runPoliceStrobe() {
+  digitalWrite(yellowLED, LOW);
+  for (int i = 0; i < 5; i++) {
+    digitalWrite(redLED, HIGH);
+    digitalWrite(blueLED, LOW);
+    digitalWrite(whiteLED, HIGH);
+    tone(piezoPin, 2500, 40);
+    delay(50);
+    
+    digitalWrite(redLED, LOW);
+    digitalWrite(blueLED, HIGH);
+    digitalWrite(whiteLED, LOW);
+    tone(piezoPin, 1800, 40);
+    delay(50);
+  }
+  digitalWrite(blueLED, LOW);
+
+}
+
+void allLedsOff() {
+  digitalWrite(yellowLED, LOW);
+  digitalWrite(redLED, LOW);
+  digitalWrite(blueLED, LOW);
+  digitalWrite(whiteLED, LOW);
+  noTone(piezoPin);
 }
